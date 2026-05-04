@@ -7,6 +7,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.chat_settings import (
+    MAX_PREFERENCES_LENGTH,
+    SqlAlchemyChatSettingsStore,
+    get_chat_settings,
+    set_chat_summary_language,
+    set_chat_summary_preferences,
+    set_chat_summary_style,
+)
 from app.application.subscriptions import (
     SqlAlchemySubscriptionStore,
     SubscriptionListItem,
@@ -17,6 +25,10 @@ from app.application.subscriptions import (
 )
 from app.bot.keyboards import (
     main_menu_keyboard,
+    settings_keyboard,
+    settings_language_keyboard,
+    settings_preferences_keyboard,
+    settings_style_keyboard,
     subscription_mode_keyboard,
     subscriptions_list_keyboard,
 )
@@ -37,6 +49,10 @@ MAIN_MENU_TEXT = (
 class AddRepositoryFlow(StatesGroup):
     waiting_for_repository = State()
     waiting_for_mode = State()
+
+
+class SettingsFlow(StatesGroup):
+    waiting_for_preferences = State()
 
 
 @router.message(CommandStart())
@@ -328,12 +344,193 @@ async def check_now(
 
 
 @router.callback_query(F.data == "menu:settings")
-async def settings(callback: CallbackQuery) -> None:
+async def settings(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+    state: FSMContext,
+) -> None:
+    await callback.answer()
+    await state.clear()
+    if callback.message is None:
+        return
+    await _show_settings_overview(callback.message, session_factory)
+
+
+@router.callback_query(F.data == "settings:back")
+async def settings_back(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+    state: FSMContext,
+) -> None:
+    await callback.answer()
+    await state.clear()
+    if callback.message is None:
+        return
+    await _show_settings_overview(callback.message, session_factory)
+
+
+@router.callback_query(F.data == "settings:lang")
+async def settings_lang(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.message:
         await callback.message.answer(
-            "Настройки summary появятся следующим инкрементом: язык, стиль и пожелания."
+            "Выбери язык сводки:", reply_markup=settings_language_keyboard()
         )
+
+
+@router.callback_query(F.data.in_({"settings:lang:ru", "settings:lang:en"}))
+async def settings_lang_set(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await callback.answer()
+    if callback.message is None or callback.data is None:
+        return
+    language = callback.data.removeprefix("settings:lang:")
+    chat_id = callback.message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            ok = await set_chat_summary_language(
+                store=SqlAlchemyChatSettingsStore(session),
+                telegram_chat_id=chat_id,
+                language=language,
+            )
+    if not ok:
+        await callback.message.answer("Сначала добавь хотя бы одну подписку.")
+        return
+    await callback.message.answer(f"Язык сводки: {language}")
+    await _show_settings_overview(callback.message, session_factory)
+
+
+@router.callback_query(F.data == "settings:style")
+async def settings_style(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            "Выбери стиль сводки:", reply_markup=settings_style_keyboard()
+        )
+
+
+@router.callback_query(
+    F.data.in_({"settings:style:short_technical", "settings:style:detailed"})
+)
+async def settings_style_set(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await callback.answer()
+    if callback.message is None or callback.data is None:
+        return
+    style = callback.data.removeprefix("settings:style:")
+    chat_id = callback.message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            ok = await set_chat_summary_style(
+                store=SqlAlchemyChatSettingsStore(session),
+                telegram_chat_id=chat_id,
+                style=style,
+            )
+    if not ok:
+        await callback.message.answer("Сначала добавь хотя бы одну подписку.")
+        return
+    await callback.message.answer(f"Стиль сводки: {style}")
+    await _show_settings_overview(callback.message, session_factory)
+
+
+@router.callback_query(F.data == "settings:prefs")
+async def settings_prefs(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    await state.set_state(SettingsFlow.waiting_for_preferences)
+    await callback.message.answer(
+        "Отправь текстом, что важно подсветить в сводке. "
+        f"Максимум {MAX_PREFERENCES_LENGTH} символов.\n\n"
+        "Например: «выделяй breaking changes и изменения CLI».",
+        reply_markup=settings_preferences_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "settings:prefs:clear")
+async def settings_prefs_clear(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+    state: FSMContext,
+) -> None:
+    await callback.answer()
+    await state.clear()
+    if callback.message is None:
+        return
+    chat_id = callback.message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            ok = await set_chat_summary_preferences(
+                store=SqlAlchemyChatSettingsStore(session),
+                telegram_chat_id=chat_id,
+                preferences=None,
+            )
+    if not ok:
+        await callback.message.answer("Сначала добавь хотя бы одну подписку.")
+        return
+    await callback.message.answer("Пожелания очищены.")
+    await _show_settings_overview(callback.message, session_factory)
+
+
+@router.message(SettingsFlow.waiting_for_preferences)
+async def settings_prefs_set(
+    message: Message,
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    if not message.text:
+        await message.answer("Отправь пожелания текстом или нажми «Очистить».")
+        return
+    chat_id = message.chat.id
+    try:
+        async with session_factory() as session:
+            async with session.begin():
+                ok = await set_chat_summary_preferences(
+                    store=SqlAlchemyChatSettingsStore(session),
+                    telegram_chat_id=chat_id,
+                    preferences=message.text,
+                )
+    except ValueError:
+        await message.answer(
+            f"Слишком длинно. Максимум {MAX_PREFERENCES_LENGTH} символов."
+        )
+        return
+    await state.clear()
+    if not ok:
+        await message.answer("Сначала добавь хотя бы одну подписку.")
+        return
+    await message.answer("Пожелания сохранены.")
+    await _show_settings_overview(message, session_factory)
+
+
+async def _show_settings_overview(
+    message: Message, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    chat_id = message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            current = await get_chat_settings(
+                store=SqlAlchemyChatSettingsStore(session),
+                telegram_chat_id=chat_id,
+            )
+    if current is None:
+        await message.answer(
+            "Настройки появятся после добавления первой подписки.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    preferences = current.preferences or "—"
+    await message.answer(
+        "⚙️ Настройки сводки\n\n"
+        f"Язык: {current.language}\n"
+        f"Стиль: {current.style}\n"
+        f"Пожелания: {preferences}",
+        reply_markup=settings_keyboard(current.language, current.style),
+    )
 
 
 @router.callback_query(F.data == "menu:help")

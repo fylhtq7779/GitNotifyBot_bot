@@ -17,6 +17,58 @@ def subscriptions_list_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def settings_keyboard(language: str, style: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"🌍 Язык: {language}", callback_data="settings:lang")],
+            [InlineKeyboardButton(text=f"🎯 Стиль: {style}", callback_data="settings:style")],
+            [InlineKeyboardButton(text="📝 Пожелания", callback_data="settings:prefs")],
+            [InlineKeyboardButton(text="⬅️ Меню", callback_data="menu:back")],
+        ]
+    )
+
+
+def settings_language_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🇷🇺 ru", callback_data="settings:lang:ru"),
+                InlineKeyboardButton(text="🇬🇧 en", callback_data="settings:lang:en"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")],
+        ]
+    )
+
+
+def settings_style_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Кратко",
+                    callback_data="settings:style:short_technical",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Подробно",
+                    callback_data="settings:style:detailed",
+                )
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")],
+        ]
+    )
+
+
+def settings_preferences_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Очистить", callback_data="settings:prefs:clear")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="settings:back")],
+        ]
+    )
+
+
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
