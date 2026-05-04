@@ -1,0 +1,1 @@
+"""GitNotifyBot application package."""
