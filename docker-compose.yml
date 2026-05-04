@@ -1,12 +1,13 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: gitnotifybot
       POSTGRES_USER: gitnotifybot
       POSTGRES_PASSWORD: gitnotifybot
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -15,10 +16,10 @@ services:
       timeout: 3s
       retries: 10
 
-  bot:
-    image: python:3.12-slim
+  migrate:
+    image: python:3.13-slim
     working_dir: /app
-    command: sh -c "pip install uv && uv sync && uv run python -m app.bot"
+    command: sh -c "pip install --no-cache-dir uv && uv sync && uv run alembic upgrade head"
     env_file: .env
     volumes:
       - .:/app
@@ -26,16 +27,33 @@ services:
       postgres:
         condition: service_healthy
 
-  worker:
-    image: python:3.12-slim
+  bot:
+    image: python:3.13-slim
+    restart: unless-stopped
     working_dir: /app
-    command: sh -c "pip install uv && uv sync && uv run python -m app.worker"
+    command: sh -c "pip install --no-cache-dir uv && uv sync && uv run python -m app.bot"
     env_file: .env
     volumes:
       - .:/app
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    image: python:3.13-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "pip install --no-cache-dir uv && uv sync && uv run python -m app.worker"
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
