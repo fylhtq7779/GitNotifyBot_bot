@@ -18,6 +18,7 @@ from app.application.chat_settings import (
 from app.application.subscriptions import (
     SqlAlchemySubscriptionStore,
     SubscriptionListItem,
+    add_file_subscription,
     add_release_subscription,
     delete_chat_subscription,
     list_chat_subscriptions,
@@ -49,6 +50,7 @@ MAIN_MENU_TEXT = (
 class AddRepositoryFlow(StatesGroup):
     waiting_for_repository = State()
     waiting_for_mode = State()
+    waiting_for_file_path = State()
 
 
 class SettingsFlow(StatesGroup):
@@ -179,11 +181,94 @@ async def add_releases_subscription(
 
 
 @router.callback_query(AddRepositoryFlow.waiting_for_mode, F.data == "add:mode:file")
-async def add_file_subscription_placeholder(callback: CallbackQuery) -> None:
+async def request_file_path(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
-    if callback.message:
-        await callback.message.answer(
-            "Режим File пока в разработке. Сейчас можно добавить подписку в режиме Releases."
+    if callback.message is None:
+        return
+    await state.set_state(AddRepositoryFlow.waiting_for_file_path)
+    await callback.message.answer(
+        "Отправь путь к файлу на default branch.\n\nНапример: README.md или src/app.py"
+    )
+
+
+@router.message(AddRepositoryFlow.waiting_for_file_path)
+async def receive_file_path(
+    message: Message,
+    state: FSMContext,
+    github_client: GitHubClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    if not message.text:
+        await message.answer("Отправь путь к файлу текстом.")
+        return
+
+    data = await state.get_data()
+    repo_owner = data.get("repo_owner")
+    repo_name = data.get("repo_name")
+    if not isinstance(repo_owner, str) or not isinstance(repo_name, str):
+        await state.clear()
+        await message.answer(
+            "Сессия добавления устарела. Нажми “Добавить репозиторий” ещё раз.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
+    user = message.from_user
+    if user is None:
+        await state.clear()
+        await message.answer("Не получилось определить пользователя Telegram.")
+        return
+
+    chat = message.chat
+    file_path = message.text.strip().lstrip("/")
+    if not file_path:
+        await message.answer("Путь к файлу не может быть пустым.")
+        return
+
+    try:
+        async with session_factory() as session:
+            async with session.begin():
+                result = await add_file_subscription(
+                    store=SqlAlchemySubscriptionStore(session),
+                    github_client=github_client,
+                    repository_ref=GitHubRepositoryRef(owner=repo_owner, name=repo_name),
+                    file_path=file_path,
+                    telegram_chat_id=chat.id,
+                    chat_type=chat.type,
+                    chat_title=chat.title,
+                    telegram_user_id=user.id,
+                    username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    language_code=user.language_code,
+                )
+    except GitHubNotFoundError:
+        await message.answer(
+            "Файл не найден на default branch. Проверь путь и отправь ещё раз."
+        )
+        return
+    except GitHubApiError as exc:
+        await message.answer(f"GitHub API не ответил корректно: {exc}")
+        return
+    except ValueError as exc:
+        await message.answer(f"Не получилось добавить файл: {exc}")
+        return
+
+    await state.clear()
+    if result.created:
+        await message.answer(
+            "Подписка добавлена.\n\n"
+            f"Репозиторий: {result.repository_full_name}\n"
+            f"Режим: File\n"
+            f"Branch: {result.branch}\n"
+            f"Файл: {result.file_path}\n"
+            f"Baseline sha: {result.file_sha[:7]}",
+            reply_markup=main_menu_keyboard(),
+        )
+    else:
+        await message.answer(
+            f"Подписка на {result.repository_full_name}:{result.file_path} уже существует.",
+            reply_markup=main_menu_keyboard(),
         )
 
 

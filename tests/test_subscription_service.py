@@ -4,8 +4,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.application.subscriptions import (
+    AddFileSubscriptionResult,
     AddReleaseSubscriptionResult,
     SubscriptionListItem,
+    add_file_subscription,
     add_release_subscription,
     delete_chat_subscription,
     list_chat_subscriptions,
@@ -31,7 +33,23 @@ class FakeGitHubRelease:
     tag_name: str | None
 
 
+@dataclass(frozen=True)
+class FakeGitHubFileContents:
+    path: str
+    sha: str
+    size: int | None
+    html_url: str | None
+    download_url: str | None
+
+
 class FakeGitHubClient:
+    def __init__(
+        self,
+        *,
+        file_contents: FakeGitHubFileContents | None = None,
+    ) -> None:
+        self._file_contents = file_contents
+
     async def get_repository(self, ref: GitHubRepositoryRef) -> FakeGitHubRepository:
         return FakeGitHubRepository(
             owner=ref.owner,
@@ -46,6 +64,19 @@ class FakeGitHubClient:
         self, ref: GitHubRepositoryRef
     ) -> FakeGitHubRelease | None:
         return FakeGitHubRelease(release_id="123456", tag_name="v1.2.3")
+
+    async def get_file_contents(
+        self, ref: GitHubRepositoryRef, *, path: str, branch: str
+    ) -> FakeGitHubFileContents:
+        if self._file_contents is None:
+            return FakeGitHubFileContents(
+                path=path,
+                sha="abcdef0123456789",
+                size=42,
+                html_url=f"https://github.com/{ref.full_name}/blob/{branch}/{path}",
+                download_url=f"https://raw.githubusercontent.com/{ref.full_name}/{branch}/{path}",
+            )
+        return self._file_contents
 
 
 class FakeSubscriptionStore:
@@ -125,12 +156,9 @@ class FakeSubscriptionStore:
         return repository
 
     async def get_or_create_release_source(self, repository: Repository) -> GitHubSource:
+        source_key = f"github:releases:{repository.full_name.lower()}"
         source = next(
-            (
-                item
-                for item in self.sources
-                if item.source_key == "github:releases:anthropics/claude-code"
-            ),
+            (item for item in self.sources if item.source_key == source_key),
             None,
         )
         if source is None:
@@ -138,7 +166,30 @@ class FakeSubscriptionStore:
                 id=self._allocate_id(),
                 repository_id=repository.id,
                 source_type="releases",
-                source_key="github:releases:anthropics/claude-code",
+                source_key=source_key,
+            )
+            self.sources.append(source)
+        return source
+
+    async def get_or_create_file_source(
+        self, repository: Repository, *, branch: str, file_path: str
+    ) -> GitHubSource:
+        normalized = file_path.strip("/")
+        source_key = (
+            f"github:file:{repository.full_name.lower()}:{branch}:{normalized}"
+        )
+        source = next(
+            (item for item in self.sources if item.source_key == source_key),
+            None,
+        )
+        if source is None:
+            source = GitHubSource(
+                id=self._allocate_id(),
+                repository_id=repository.id,
+                source_type="file",
+                source_key=source_key,
+                branch=branch,
+                file_path=normalized,
             )
             self.sources.append(source)
         return source
@@ -149,6 +200,7 @@ class FakeSubscriptionStore:
         chat: Chat,
         repository: Repository,
         source: GitHubSource,
+        mode: str,
         created_by_user_id: int,
         check_interval_minutes: int,
     ) -> tuple[Subscription, bool]:
@@ -168,7 +220,7 @@ class FakeSubscriptionStore:
             chat_id=chat.id,
             repository_id=repository.id,
             github_source_id=source.id,
-            mode="releases",
+            mode=mode,
             check_interval_minutes=check_interval_minutes,
             created_by_user_id=created_by_user_id,
         )
@@ -187,6 +239,20 @@ class FakeSubscriptionStore:
             subscription_id=subscription.id,
             last_seen_release_id=last_seen_release_id,
             last_seen_tag=last_seen_tag,
+        )
+        self.states.append(state)
+        return state
+
+    async def ensure_file_state(
+        self,
+        subscription: Subscription,
+        *,
+        last_seen_file_sha: str,
+    ) -> SubscriptionState:
+        state = SubscriptionState(
+            id=self._allocate_id(),
+            subscription_id=subscription.id,
+            last_seen_file_sha=last_seen_file_sha,
         )
         self.states.append(state)
         return state
@@ -407,3 +473,46 @@ async def test_reschedule_chat_subscriptions_now_returns_zero_for_unknown_chat()
     affected = await reschedule_chat_subscriptions_now(store=store, telegram_chat_id=999)
 
     assert affected == 0
+
+
+@pytest.mark.asyncio
+async def test_add_file_subscription_creates_records_with_baseline_sha() -> None:
+    store = FakeSubscriptionStore()
+
+    result = await add_file_subscription(
+        store=store,
+        github_client=FakeGitHubClient(
+            file_contents=FakeGitHubFileContents(
+                path="docs/index.md",
+                sha="0123456789abcdef",
+                size=1024,
+                html_url="https://github.com/octo/repo/blob/main/docs/index.md",
+                download_url="https://raw.githubusercontent.com/octo/repo/main/docs/index.md",
+            )
+        ),
+        repository_ref=GitHubRepositoryRef(owner="octo", name="repo"),
+        file_path="/docs/index.md",
+        telegram_chat_id=42,
+        chat_type="private",
+        chat_title=None,
+        telegram_user_id=100,
+        username="octocat",
+        first_name="Octo",
+        last_name=None,
+        language_code="ru",
+    )
+
+    assert isinstance(result, AddFileSubscriptionResult)
+    assert result.repository_full_name == "octo/repo"
+    assert result.branch == "main"
+    assert result.file_path == "docs/index.md"
+    assert result.file_sha == "0123456789abcdef"
+    assert result.created is True
+    assert len(store.sources) == 1
+    assert store.sources[0].source_type == "file"
+    assert store.sources[0].file_path == "docs/index.md"
+    assert store.sources[0].branch == "main"
+    assert len(store.subscriptions) == 1
+    assert store.subscriptions[0].mode == "file"
+    assert len(store.states) == 1
+    assert store.states[0].last_seen_file_sha == "0123456789abcdef"

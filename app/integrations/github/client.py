@@ -1,5 +1,6 @@
+import urllib.parse
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -35,6 +36,15 @@ class GitHubRelease:
     body: str | None
 
 
+@dataclass(frozen=True)
+class GitHubFileContents:
+    path: str
+    sha: str
+    size: int | None
+    html_url: str | None
+    download_url: str | None
+
+
 class GitHubClient:
     def __init__(self, token: str, *, timeout_seconds: float = 20) -> None:
         self._token = token
@@ -68,7 +78,52 @@ class GitHubClient:
             body=str(data["body"]) if isinstance(data.get("body"), str) else None,
         )
 
+    async def get_file_contents(
+        self, ref: GitHubRepositoryRef, *, path: str, branch: str
+    ) -> GitHubFileContents:
+        normalized_path = path.strip("/")
+        if not normalized_path:
+            raise ValueError("File path must not be empty")
+        encoded_path = urllib.parse.quote(normalized_path, safe="/")
+        encoded_branch = urllib.parse.quote(branch, safe="")
+        payload = await self._request_any(
+            "GET",
+            f"/repos/{ref.owner}/{ref.name}/contents/{encoded_path}?ref={encoded_branch}",
+        )
+        if isinstance(payload, list):
+            raise GitHubApiError(
+                "GitHub returned a directory listing; provide a path to a single file"
+            )
+        if not isinstance(payload, dict):
+            raise GitHubApiError("GitHub API returned an unexpected file payload")
+        if payload.get("type") != "file":
+            raise GitHubApiError(
+                f"Path is not a regular file (type={payload.get('type')})"
+            )
+        sha = payload.get("sha")
+        if not isinstance(sha, str):
+            raise GitHubApiError("GitHub API returned a file without a sha")
+        size_raw = payload.get("size")
+        size = int(size_raw) if isinstance(size_raw, int) else None
+        return GitHubFileContents(
+            path=str(payload.get("path") or normalized_path),
+            sha=sha,
+            size=size,
+            html_url=str(payload["html_url"])
+            if isinstance(payload.get("html_url"), str)
+            else None,
+            download_url=str(payload["download_url"])
+            if isinstance(payload.get("download_url"), str)
+            else None,
+        )
+
     async def _request_json(self, method: str, path: str) -> dict[str, Any]:
+        payload = await self._request_any(method, path)
+        if not isinstance(payload, dict):
+            raise GitHubApiError("GitHub API returned an unexpected response")
+        return payload
+
+    async def _request_any(self, method: str, path: str) -> Any:
         headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {self._token}",
@@ -84,12 +139,9 @@ class GitHubClient:
             response = await client.request(method, path)
 
         if response.status_code == 404:
-            raise GitHubNotFoundError("GitHub repository or release was not found")
+            raise GitHubNotFoundError("GitHub repository or resource was not found")
         if response.status_code >= 400:
             raise GitHubApiError(
                 f"GitHub API request failed with HTTP {response.status_code}"
             )
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise GitHubApiError("GitHub API returned an unexpected response")
-        return payload
+        return cast(Any, response.json())

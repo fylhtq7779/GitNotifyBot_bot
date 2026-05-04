@@ -4,6 +4,11 @@ from pathlib import Path
 
 from aiogram import Bot
 
+from app.application.file_worker import (
+    FilePollingResult,
+    SqlAlchemyFilePollingStore,
+    process_due_file_subscriptions,
+)
 from app.application.release_worker import (
     ReleasePollingResult,
     SqlAlchemyReleasePollingStore,
@@ -20,6 +25,7 @@ from app.storage.session import create_session_factory
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path("app/prompts/github_update_summary.v1.yaml")
+POLL_INTERVAL_SECONDS = 60
 
 
 class TelegramNotificationClient:
@@ -39,27 +45,50 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     telegram_client = TelegramNotificationClient(bot)
     prompt = load_prompt_template(PROMPT_PATH)
-    summarizer = OpenAIReleaseSummarizer(client=OpenAILLMClient(), prompt=prompt)
+    release_summarizer = OpenAIReleaseSummarizer(client=OpenAILLMClient(), prompt=prompt)
     logger.info("worker started")
     try:
         while True:
             async with session_factory() as session:
                 async with session.begin():
-                    result = await process_due_release_subscriptions(
+                    release_result = await process_due_release_subscriptions(
                         store=SqlAlchemyReleasePollingStore(session),
                         github_client=github_client,
                         telegram_client=telegram_client,
-                        summarizer=summarizer,
+                        summarizer=release_summarizer,
                     )
-            _log_result(result)
-            await asyncio.sleep(60)
+            _log_release_result(release_result)
+
+            async with session_factory() as session:
+                async with session.begin():
+                    file_result = await process_due_file_subscriptions(
+                        store=SqlAlchemyFilePollingStore(session),
+                        github_client=github_client,
+                        telegram_client=telegram_client,
+                        summarizer=None,
+                    )
+            _log_file_result(file_result)
+
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
     finally:
         await bot.session.close()
 
 
-def _log_result(result: ReleasePollingResult) -> None:
+def _log_release_result(result: ReleasePollingResult) -> None:
     logger.info(
         "release polling cycle completed",
+        extra={
+            "processed": result.processed,
+            "unchanged": result.unchanged,
+            "notified": result.notified,
+            "failed": result.failed,
+        },
+    )
+
+
+def _log_file_result(result: FilePollingResult) -> None:
+    logger.info(
+        "file polling cycle completed",
         extra={
             "processed": result.processed,
             "unchanged": result.unchanged,

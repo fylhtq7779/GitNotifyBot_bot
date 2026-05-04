@@ -26,11 +26,24 @@ class GitHubRelease(Protocol):
     tag_name: str | None
 
 
+class GitHubFileContents(Protocol):
+    path: str
+    sha: str
+    size: int | None
+    html_url: str | None
+    download_url: str | None
+
+
 class GitHubClient(Protocol):
     async def get_repository(self, ref: GitHubRepositoryRef) -> GitHubRepository:
         raise NotImplementedError
 
     async def get_latest_release(self, ref: GitHubRepositoryRef) -> GitHubRelease | None:
+        raise NotImplementedError
+
+    async def get_file_contents(
+        self, ref: GitHubRepositoryRef, *, path: str, branch: str
+    ) -> GitHubFileContents:
         raise NotImplementedError
 
 
@@ -40,6 +53,17 @@ class AddReleaseSubscriptionResult:
     repository_html_url: str
     default_branch: str
     latest_release_tag: str | None
+    created: bool
+
+
+@dataclass(frozen=True)
+class AddFileSubscriptionResult:
+    repository_full_name: str
+    repository_html_url: str
+    branch: str
+    file_path: str
+    file_html_url: str | None
+    file_sha: str
     created: bool
 
 
@@ -84,12 +108,18 @@ class SubscriptionStore(Protocol):
     async def get_or_create_release_source(self, repository: Repository) -> GitHubSource:
         raise NotImplementedError
 
+    async def get_or_create_file_source(
+        self, repository: Repository, *, branch: str, file_path: str
+    ) -> GitHubSource:
+        raise NotImplementedError
+
     async def get_or_create_subscription(
         self,
         *,
         chat: Chat,
         repository: Repository,
         source: GitHubSource,
+        mode: str,
         created_by_user_id: int,
         check_interval_minutes: int,
     ) -> tuple[Subscription, bool]:
@@ -101,6 +131,14 @@ class SubscriptionStore(Protocol):
         *,
         last_seen_release_id: str | None,
         last_seen_tag: str | None,
+    ) -> SubscriptionState:
+        raise NotImplementedError
+
+    async def ensure_file_state(
+        self,
+        subscription: Subscription,
+        *,
+        last_seen_file_sha: str,
     ) -> SubscriptionState:
         raise NotImplementedError
 
@@ -207,12 +245,39 @@ class SqlAlchemySubscriptionStore:
             await self._session.flush()
         return source
 
+    async def get_or_create_file_source(
+        self, repository: Repository, *, branch: str, file_path: str
+    ) -> GitHubSource:
+        normalized_path = file_path.strip("/")
+        source_key = build_source_key(
+            GitHubSourceType.FILE,
+            repository.owner,
+            repository.name,
+            branch=branch,
+            file_path=normalized_path,
+        )
+        source = await self._session.scalar(
+            select(GitHubSource).where(GitHubSource.source_key == source_key)
+        )
+        if source is None:
+            source = GitHubSource(
+                repository_id=repository.id,
+                source_type=GitHubSourceType.FILE.value,
+                source_key=source_key,
+                branch=branch,
+                file_path=normalized_path,
+            )
+            self._session.add(source)
+            await self._session.flush()
+        return source
+
     async def get_or_create_subscription(
         self,
         *,
         chat: Chat,
         repository: Repository,
         source: GitHubSource,
+        mode: str,
         created_by_user_id: int,
         check_interval_minutes: int,
     ) -> tuple[Subscription, bool]:
@@ -229,7 +294,7 @@ class SqlAlchemySubscriptionStore:
             chat_id=chat.id,
             repository_id=repository.id,
             github_source_id=source.id,
-            mode=GitHubSourceType.RELEASES.value,
+            mode=mode,
             status=SubscriptionStatus.ACTIVE.value,
             check_interval_minutes=check_interval_minutes,
             next_check_at=datetime.now(UTC) + timedelta(minutes=check_interval_minutes),
@@ -257,6 +322,24 @@ class SqlAlchemySubscriptionStore:
 
         state.last_seen_release_id = last_seen_release_id
         state.last_seen_tag = last_seen_tag
+        await self._session.flush()
+        return state
+
+    async def ensure_file_state(
+        self,
+        subscription: Subscription,
+        *,
+        last_seen_file_sha: str,
+    ) -> SubscriptionState:
+        state = await self._session.scalar(
+            select(SubscriptionState).where(
+                SubscriptionState.subscription_id == subscription.id
+            )
+        )
+        if state is None:
+            state = SubscriptionState(subscription_id=subscription.id)
+            self._session.add(state)
+        state.last_seen_file_sha = last_seen_file_sha
         await self._session.flush()
         return state
 
@@ -410,6 +493,7 @@ async def add_release_subscription(
         chat=chat,
         repository=repository,
         source=source,
+        mode=GitHubSourceType.RELEASES.value,
         created_by_user_id=user.id,
         check_interval_minutes=check_interval_minutes,
     )
@@ -425,5 +509,66 @@ async def add_release_subscription(
         repository_html_url=github_repository.html_url,
         default_branch=github_repository.default_branch,
         latest_release_tag=latest_release.tag_name if latest_release else None,
+        created=created,
+    )
+
+
+async def add_file_subscription(
+    *,
+    store: SubscriptionStore,
+    github_client: GitHubClient,
+    repository_ref: GitHubRepositoryRef,
+    file_path: str,
+    telegram_chat_id: int,
+    chat_type: str,
+    chat_title: str | None,
+    telegram_user_id: int,
+    username: str | None,
+    first_name: str | None,
+    last_name: str | None,
+    language_code: str | None,
+    check_interval_minutes: int = DEFAULT_CHECK_INTERVAL_MINUTES,
+) -> AddFileSubscriptionResult:
+    github_repository = await github_client.get_repository(repository_ref)
+    branch = github_repository.default_branch
+    file_contents = await github_client.get_file_contents(
+        repository_ref, path=file_path, branch=branch
+    )
+
+    user = await store.get_or_create_user(
+        telegram_user_id=telegram_user_id,
+        username=username,
+        first_name=first_name,
+        last_name=last_name,
+        language_code=language_code,
+    )
+    chat = await store.get_or_create_chat(
+        telegram_chat_id=telegram_chat_id,
+        chat_type=chat_type,
+        title=chat_title,
+        created_by_user_id=user.id,
+    )
+    repository = await store.upsert_repository(github_repository)
+    source = await store.get_or_create_file_source(
+        repository, branch=branch, file_path=file_contents.path
+    )
+    subscription, created = await store.get_or_create_subscription(
+        chat=chat,
+        repository=repository,
+        source=source,
+        mode=GitHubSourceType.FILE.value,
+        created_by_user_id=user.id,
+        check_interval_minutes=check_interval_minutes,
+    )
+    if created:
+        await store.ensure_file_state(subscription, last_seen_file_sha=file_contents.sha)
+
+    return AddFileSubscriptionResult(
+        repository_full_name=github_repository.full_name,
+        repository_html_url=github_repository.html_url,
+        branch=branch,
+        file_path=file_contents.path,
+        file_html_url=file_contents.html_url,
+        file_sha=file_contents.sha,
         created=created,
     )
