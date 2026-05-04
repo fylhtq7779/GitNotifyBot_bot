@@ -21,6 +21,9 @@ env/
 .idea/
 .vscode/
 
+# Local git worktrees
+.worktrees/
+
 # OS
 .DS_Store
 Thumbs.db
