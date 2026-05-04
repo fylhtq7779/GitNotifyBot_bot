@@ -9,6 +9,7 @@ from app.application.subscriptions import (
     add_release_subscription,
     delete_chat_subscription,
     list_chat_subscriptions,
+    reschedule_chat_subscriptions_now,
 )
 from app.domain.github import GitHubRepositoryRef
 from app.storage.models import Chat, GitHubSource, Repository, Subscription, SubscriptionState, User
@@ -223,6 +224,25 @@ class FakeSubscriptionStore:
             )
         return result
 
+    async def reschedule_chat_subscriptions_now(
+        self, *, telegram_chat_id: int, now: datetime
+    ) -> int:
+        chat = next(
+            (item for item in self.chats if item.telegram_chat_id == telegram_chat_id),
+            None,
+        )
+        if chat is None:
+            return 0
+        affected = 0
+        for sub in self.subscriptions:
+            if sub.chat_id != chat.id:
+                continue
+            if getattr(sub, "status", "active") != "active":
+                continue
+            sub.next_check_at = now
+            affected += 1
+        return affected
+
     async def delete_chat_subscription(
         self, *, telegram_chat_id: int, subscription_id: int
     ) -> str | None:
@@ -352,3 +372,38 @@ async def test_delete_chat_subscription_removes_only_matching_chat() -> None:
     )
     assert removed == "anthropics/claude-code"
     assert store.subscriptions == []
+
+
+@pytest.mark.asyncio
+async def test_reschedule_chat_subscriptions_now_resets_next_check_at() -> None:
+    store = FakeSubscriptionStore()
+    await add_release_subscription(
+        store=store,
+        github_client=FakeGitHubClient(),
+        repository_ref=GitHubRepositoryRef(owner="anthropics", name="claude-code"),
+        telegram_chat_id=42,
+        chat_type="private",
+        chat_title=None,
+        telegram_user_id=100,
+        username="octocat",
+        first_name="Octo",
+        last_name=None,
+        language_code="ru",
+    )
+    store.subscriptions[0].status = "active"
+    store.subscriptions[0].next_check_at = datetime.now(UTC) + timedelta(hours=2)
+    far_future = store.subscriptions[0].next_check_at
+
+    affected = await reschedule_chat_subscriptions_now(store=store, telegram_chat_id=42)
+
+    assert affected == 1
+    assert store.subscriptions[0].next_check_at < far_future
+
+
+@pytest.mark.asyncio
+async def test_reschedule_chat_subscriptions_now_returns_zero_for_unknown_chat() -> None:
+    store = FakeSubscriptionStore()
+
+    affected = await reschedule_chat_subscriptions_now(store=store, telegram_chat_id=999)
+
+    assert affected == 0

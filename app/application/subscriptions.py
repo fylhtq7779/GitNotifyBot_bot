@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import GitHubSourceType, SubscriptionStatus
@@ -112,6 +112,11 @@ class SubscriptionStore(Protocol):
     async def delete_chat_subscription(
         self, *, telegram_chat_id: int, subscription_id: int
     ) -> str | None:
+        raise NotImplementedError
+
+    async def reschedule_chat_subscriptions_now(
+        self, *, telegram_chat_id: int, now: datetime
+    ) -> int:
         raise NotImplementedError
 
 
@@ -326,6 +331,25 @@ class SqlAlchemySubscriptionStore:
         await self._session.flush()
         return match[1]
 
+    async def reschedule_chat_subscriptions_now(
+        self, *, telegram_chat_id: int, now: datetime
+    ) -> int:
+        chat = await self._session.scalar(
+            select(Chat).where(Chat.telegram_chat_id == telegram_chat_id)
+        )
+        if chat is None:
+            return 0
+        result = await self._session.execute(
+            update(Subscription)
+            .where(
+                Subscription.chat_id == chat.id,
+                Subscription.status == SubscriptionStatus.ACTIVE.value,
+            )
+            .values(next_check_at=now)
+        )
+        await self._session.flush()
+        return int(result.rowcount or 0)
+
 
 async def list_chat_subscriptions(
     *, store: SubscriptionStore, telegram_chat_id: int
@@ -338,6 +362,14 @@ async def delete_chat_subscription(
 ) -> str | None:
     return await store.delete_chat_subscription(
         telegram_chat_id=telegram_chat_id, subscription_id=subscription_id
+    )
+
+
+async def reschedule_chat_subscriptions_now(
+    *, store: SubscriptionStore, telegram_chat_id: int
+) -> int:
+    return await store.reschedule_chat_subscriptions_now(
+        telegram_chat_id=telegram_chat_id, now=datetime.now(UTC)
     )
 
 

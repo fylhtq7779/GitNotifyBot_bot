@@ -13,6 +13,7 @@ from app.application.subscriptions import (
     add_release_subscription,
     delete_chat_subscription,
     list_chat_subscriptions,
+    reschedule_chat_subscriptions_now,
 )
 from app.bot.keyboards import (
     main_menu_keyboard,
@@ -300,10 +301,30 @@ def _humanize_age(moment: datetime) -> str:
 
 
 @router.callback_query(F.data == "menu:check")
-async def check_now(callback: CallbackQuery) -> None:
+async def check_now(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     await callback.answer()
-    if callback.message:
-        await callback.message.answer("Ручная проверка появится вместе с worker pipeline.")
+    if callback.message is None:
+        return
+    chat_id = callback.message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            count = await reschedule_chat_subscriptions_now(
+                store=SqlAlchemySubscriptionStore(session),
+                telegram_chat_id=chat_id,
+            )
+    if count == 0:
+        await callback.message.answer(
+            "Нечего проверять — у тебя нет активных подписок.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    await callback.message.answer(
+        f"Поставил в очередь {count} подписок. "
+        "Уведомления придут после ближайшего цикла worker'а (до минуты)."
+    )
 
 
 @router.callback_query(F.data == "menu:settings")
