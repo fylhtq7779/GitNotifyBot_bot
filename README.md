@@ -64,3 +64,9 @@ Run worker process:
 ```bash
 uv run python -m app.worker
 ```
+
+## Status
+
+End-to-end MVP complete: Telegram add/list/delete subscription flows,
+manual "check now", per-chat language/style/preferences, Releases and
+File modes with LLM-generated Russian/English summaries.
