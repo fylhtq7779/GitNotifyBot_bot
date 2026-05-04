@@ -13,6 +13,10 @@ Both processes share PostgreSQL.
 
 ## Local Development
 
+This section describes the completed foundation setup. During staged implementation, some
+commands become available only after later foundation tasks add the app modules, Alembic
+configuration, and Docker Compose services.
+
 Install dependencies:
 
 ```bash
