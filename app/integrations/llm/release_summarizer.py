@@ -53,7 +53,7 @@ class OpenAIReleaseSummarizer:
                 source="github_releases",
                 language=language,
                 style=style,
-                summary_preferences=preferences or "—",
+                summary_preferences=preferences or "(no preferences)",
                 update_payload=payload,
             )
         )

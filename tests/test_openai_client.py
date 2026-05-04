@@ -8,7 +8,7 @@ from app.integrations.llm.prompt_loader import load_prompt_template
 
 class FakeResponse:
     output_text = (
-        '{"title":"Claude Code updated","bullets":["Added CLI flag"],'
+        '{"title":"Sample CLI updated","bullets":["Added new flag"],'
         '"breaking_changes":[],"links":["https://github.com/example/repo"],"confidence":"high"}'
     )
     usage = type("Usage", (), {"input_tokens": 10, "output_tokens": 12})()
@@ -40,7 +40,7 @@ async def test_openai_client_builds_responses_request(prompt_template):
     result = await client.summarize_update(
         SummaryRequest(
             prompt=prompt_template,
-            repo_full_name="anthropics/claude-code",
+            repo_full_name="octocat/hello-world",
             update_type="release",
             source="release",
             language="ru",
@@ -50,7 +50,7 @@ async def test_openai_client_builds_responses_request(prompt_template):
         )
     )
 
-    assert result.summary.title == "Claude Code updated"
+    assert result.summary.title == "Sample CLI updated"
     assert result.input_tokens == 10
     assert result.output_tokens == 12
     assert fake_openai.responses.kwargs["model"] == "gpt-5.4-mini"

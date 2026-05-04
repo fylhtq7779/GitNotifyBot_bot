@@ -133,7 +133,7 @@ class OpenAIFileSummarizer:
                 source="github_file",
                 language=language,
                 style=style,
-                summary_preferences=preferences or "—",
+                summary_preferences=preferences or "(no preferences)",
                 update_payload=payload,
             )
         )
@@ -193,7 +193,7 @@ def _build_payload(
             if len(patch_text) > MAX_PATCH_CHARS:
                 lines.append("[…patch truncated]")
         else:
-            lines.append("(patch is empty — possibly binary or rename without changes)")
+            lines.append("(patch is empty; possibly binary or rename without changes)")
     elif file_excerpt is not None:
         lines.append("")
         lines.append(

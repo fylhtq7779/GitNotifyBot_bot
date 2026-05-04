@@ -693,7 +693,7 @@ def _fallback_notification_text(
     due: DueReleaseSubscription, release: GitHubRelease, release_url: str
 ) -> str:
     label = release.tag_name or release.release_id
-    label_part = f" — {label}" if label else ""
+    label_part = f" ({label})" if label else ""
     return (
         f"✨ Обновился репозиторий {due.full_name}{label_part}\n\n"
         f"Сводка временно недоступна, открой релиз по ссылке.\n\n"
@@ -708,7 +708,7 @@ def _format_summary_message(
     summary: ReleaseSummary,
 ) -> str:
     label = release.tag_name or release.release_id
-    label_part = f" — {label}" if label else ""
+    label_part = f" ({label})" if label else ""
     lines: list[str] = [f"✨ Обновился репозиторий {due.full_name}{label_part}"]
     if summary.title and summary.title.strip():
         lines.append("")

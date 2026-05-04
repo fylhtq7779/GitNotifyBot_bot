@@ -126,7 +126,7 @@ async def reply_check(
             )
     if count == 0:
         await message.answer(
-            "Нечего проверять — у тебя нет активных подписок.",
+            "Активных подписок нет, проверять нечего.",
             reply_markup=main_menu_keyboard(),
         )
         return
@@ -454,7 +454,7 @@ def _format_subscription_list(items: list[SubscriptionListItem]) -> str:
     lines = [f"📋 Мои подписки ({len(items)})", ""]
     for index, item in enumerate(items, start=1):
         last_seen = item.last_seen_tag or item.last_seen_file_sha
-        last_seen_label = last_seen if last_seen else "—"
+        last_seen_label = last_seen if last_seen else "не задано"
         last_checked = (
             _humanize_age(item.last_checked_at)
             if item.last_checked_at is not None
@@ -501,7 +501,7 @@ async def check_now(
             )
     if count == 0:
         await callback.message.answer(
-            "Нечего проверять — у тебя нет активных подписок.",
+            "Активных подписок нет, проверять нечего.",
             reply_markup=main_menu_keyboard(),
         )
         return
@@ -691,7 +691,7 @@ async def _show_settings_overview(
             reply_markup=main_menu_keyboard(),
         )
         return
-    preferences = current.preferences or "—"
+    preferences = current.preferences or "не заданы"
     await message.answer(
         "⚙️ Настройки сводки\n\n"
         f"Язык: {current.language}\n"
@@ -702,23 +702,24 @@ async def _show_settings_overview(
 
 
 HELP_TEXT = (
-    "GitNotifyBot — отслеживает публичные GitHub-репозитории и присылает\n"
-    "краткие сводки по их обновлениям в этот чат.\n\n"
+    "GitNotifyBot отслеживает публичные GitHub-репозитории и присылает\n"
+    "краткие сводки по их обновлениям прямо в этот чат.\n\n"
     "Команды:\n"
-    "• /start, /menu — главное меню\n\n"
-    "Что делает каждая кнопка меню:\n"
-    "• ➕ Добавить репозиторий — запросит owner/repo или GitHub URL,\n"
-    "  затем предложит выбрать режим отслеживания.\n"
-    "• 📋 Мои подписки — список подписок чата с кнопкой удаления.\n"
-    "• 🔍 Проверить сейчас — поставит подписки в очередь на немедленный\n"
-    "  опрос. Уведомления придут после ближайшего цикла worker'a.\n"
-    "• ⚙️ Настройки — язык сводки (ru/en), стиль (Кратко/Подробно)\n"
-    "  и свободные «пожелания» к содержанию сводки.\n\n"
-    "Режимы:\n"
-    "• Releases — следим за GitHub Releases репозитория.\n"
-    "• File — следим за изменениями файла на default branch (по SHA).\n\n"
-    "По релизам сводка готовится через LLM на выбранном языке\n"
-    "и подсвечивает breaking changes и ключевые изменения."
+    "• /start, /menu: открыть главное меню\n\n"
+    "Кнопки меню:\n"
+    "• ➕ Добавить репозиторий: ввести owner/repo или GitHub URL\n"
+    "  и выбрать режим отслеживания.\n"
+    "• 📋 Мои подписки: список подписок чата с возможностью удалить.\n"
+    "• 🔍 Проверить сейчас: поставить подписки в очередь на немедленный\n"
+    "  опрос; уведомления придут после ближайшего цикла worker'a.\n"
+    "• ⚙️ Настройки: язык сводки (ru/en), стиль (Кратко/Подробно)\n"
+    "  и свободные пожелания к содержанию.\n\n"
+    "Режимы отслеживания:\n"
+    "• Releases: уведомление приходит при появлении нового GitHub-релиза.\n"
+    "• File: уведомление приходит при изменении файла на default-ветке\n"
+    "  (сравнение по blob sha).\n\n"
+    "Сводки готовит LLM на выбранном языке. В первую очередь\n"
+    "подсвечиваются breaking changes и ключевые изменения."
 )
 
 

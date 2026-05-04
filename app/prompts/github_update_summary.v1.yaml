@@ -29,10 +29,10 @@ developer: |
   - title: one short headline (≤ 80 chars), no trailing period, no emojis.
     State the most important change in the requested language.
   - bullets: each bullet must describe ONE distinct change, feature, fix,
-    or removal — one item per change, not one item per detail of the same
+    or removal: one item per change, not one item per detail of the same
     change. Lead with the user-visible effect, not the implementation.
     Do not fragment a single thought across multiple bullets. Do not pad
-    to reach a quota — if the patch only introduces one change, return one
+    to reach a quota. If the patch only introduces one change, return one
     bullet. Cap at 6 bullets even for large diffs (group/aggregate the
     smaller changes into the most important ones). Each bullet is a single
     sentence; keep bullets parallel in structure; no nested lists, no code
@@ -49,7 +49,7 @@ developer: |
   - Pure documentation/typo/wording changes: one bullet that names the
     section or doc that was updated; do not enumerate every sentence.
   - Dependency bumps: one bullet per package family (or one summary bullet
-    if many) — do not list every package separately.
+    if many). Do not list every package separately.
 
   Prioritize: breaking changes, new features, behavior changes,
   CLI/API/config changes, security fixes, then dependency bumps.

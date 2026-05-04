@@ -7,10 +7,10 @@ from app.domain.github import GitHubRepositoryRef, build_source_key, parse_githu
 @pytest.mark.parametrize(
     ("raw", "owner", "repo"),
     [
-        ("anthropics/claude-code", "anthropics", "claude-code"),
-        ("https://github.com/anthropics/claude-code", "anthropics", "claude-code"),
-        ("https://github.com/anthropics/claude-code.git", "anthropics", "claude-code"),
-        ("https://github.com/anthropics/claude-code/releases", "anthropics", "claude-code"),
+        ("octocat/hello-world", "octocat", "hello-world"),
+        ("https://github.com/octocat/hello-world", "octocat", "hello-world"),
+        ("https://github.com/octocat/hello-world.git", "octocat", "hello-world"),
+        ("https://github.com/octocat/hello-world/releases", "octocat", "hello-world"),
     ],
 )
 def test_parse_github_repository(raw: str, owner: str, repo: str) -> None:
@@ -27,16 +27,16 @@ def test_parse_github_repository_rejects_invalid_value() -> None:
 
 def test_build_release_source_key() -> None:
     assert (
-        build_source_key(GitHubSourceType.RELEASES, "Anthropics", "Claude-Code")
-        == "github:releases:anthropics/claude-code"
+        build_source_key(GitHubSourceType.RELEASES, "Octocat", "Hello-World")
+        == "github:releases:octocat/hello-world"
     )
 
 
 def test_build_release_source_key_accepts_repository_ref() -> None:
-    repo = GitHubRepositoryRef(owner="Anthropics", name="Claude-Code")
+    repo = GitHubRepositoryRef(owner="Octocat", name="Hello-World")
 
     assert build_source_key(GitHubSourceType.RELEASES, repo.owner, repo.name) == (
-        "github:releases:anthropics/claude-code"
+        "github:releases:octocat/hello-world"
     )
 
 
@@ -44,10 +44,10 @@ def test_build_file_source_key() -> None:
     assert (
         build_source_key(
             GitHubSourceType.FILE,
-            "Anthropics",
-            "Claude-Code",
+            "Octocat",
+            "Hello-World",
             branch="Main",
             file_path="/CHANGELOG.md",
         )
-        == "github:file:anthropics/claude-code:Main:CHANGELOG.md"
+        == "github:file:octocat/hello-world:Main:CHANGELOG.md"
     )
