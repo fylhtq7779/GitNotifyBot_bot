@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: gitnotifybot
+      POSTGRES_USER: gitnotifybot
+      POSTGRES_PASSWORD: gitnotifybot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitnotifybot -d gitnotifybot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  bot:
+    image: python:3.12-slim
+    working_dir: /app
+    command: sh -c "pip install uv && uv sync && uv run python -m app.bot"
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    image: python:3.12-slim
+    working_dir: /app
+    command: sh -c "pip install uv && uv sync && uv run python -m app.worker"
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

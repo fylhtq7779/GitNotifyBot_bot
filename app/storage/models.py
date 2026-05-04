@@ -1,8 +1,16 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -55,8 +63,12 @@ class ChatMember(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class Repository(TimestampMixin, Base):
@@ -99,7 +111,9 @@ class Subscription(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
     repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"))
-    github_source_id: Mapped[int] = mapped_column(ForeignKey("github_sources.id", ondelete="CASCADE"))
+    github_source_id: Mapped[int] = mapped_column(
+        ForeignKey("github_sources.id", ondelete="CASCADE")
+    )
     mode: Mapped[str] = mapped_column(String(32), index=True)
     status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
     check_interval_minutes: Mapped[int] = mapped_column(Integer)
@@ -133,7 +147,9 @@ class Update(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    github_source_id: Mapped[int] = mapped_column(ForeignKey("github_sources.id", ondelete="CASCADE"))
+    github_source_id: Mapped[int] = mapped_column(
+        ForeignKey("github_sources.id", ondelete="CASCADE")
+    )
     update_type: Mapped[str] = mapped_column(String(32), index=True)
     external_id: Mapped[str] = mapped_column(String(512))
     title: Mapped[str | None] = mapped_column(String(1024))
@@ -142,7 +158,9 @@ class Update(Base):
     to_sha: Mapped[str | None] = mapped_column(String(255))
     release_tag: Mapped[str | None] = mapped_column(String(255))
     raw_payload_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -179,7 +197,9 @@ class LLMSummary(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
-    __table_args__ = (UniqueConstraint("chat_id", "update_id", name="uq_notifications_chat_update"),)
+    __table_args__ = (
+        UniqueConstraint("chat_id", "update_id", name="uq_notifications_chat_update"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True)
