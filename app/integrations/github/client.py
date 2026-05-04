@@ -30,6 +30,8 @@ class GitHubRepository:
 class GitHubRelease:
     release_id: str | None
     tag_name: str | None
+    name: str | None
+    html_url: str | None
 
 
 class GitHubClient:
@@ -60,6 +62,8 @@ class GitHubClient:
         return GitHubRelease(
             release_id=str(data["id"]) if data.get("id") is not None else None,
             tag_name=str(data["tag_name"]) if data.get("tag_name") is not None else None,
+            name=str(data["name"]) if data.get("name") is not None else None,
+            html_url=str(data["html_url"]) if data.get("html_url") is not None else None,
         )
 
     async def _request_json(self, method: str, path: str) -> dict[str, Any]:
