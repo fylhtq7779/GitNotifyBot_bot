@@ -11,3 +11,13 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="❓ Помощь", callback_data="menu:help")],
         ]
     )
+
+
+def subscription_mode_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Releases", callback_data="add:mode:releases")],
+            [InlineKeyboardButton(text="File", callback_data="add:mode:file")],
+            [InlineKeyboardButton(text="Отмена", callback_data="add:cancel")],
+        ]
+    )

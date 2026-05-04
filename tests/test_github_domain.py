@@ -10,6 +10,7 @@ from app.domain.github import GitHubRepositoryRef, build_source_key, parse_githu
         ("anthropics/claude-code", "anthropics", "claude-code"),
         ("https://github.com/anthropics/claude-code", "anthropics", "claude-code"),
         ("https://github.com/anthropics/claude-code.git", "anthropics", "claude-code"),
+        ("https://github.com/anthropics/claude-code/releases", "anthropics", "claude-code"),
     ],
 )
 def test_parse_github_repository(raw: str, owner: str, repo: str) -> None:
@@ -28,6 +29,14 @@ def test_build_release_source_key() -> None:
     assert (
         build_source_key(GitHubSourceType.RELEASES, "Anthropics", "Claude-Code")
         == "github:releases:anthropics/claude-code"
+    )
+
+
+def test_build_release_source_key_accepts_repository_ref() -> None:
+    repo = GitHubRepositoryRef(owner="Anthropics", name="Claude-Code")
+
+    assert build_source_key(GitHubSourceType.RELEASES, repo.owner, repo.name) == (
+        "github:releases:anthropics/claude-code"
     )
 
 
