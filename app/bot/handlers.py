@@ -533,10 +533,29 @@ async def _show_settings_overview(
     )
 
 
+HELP_TEXT = (
+    "GitNotifyBot — отслеживает публичные GitHub-репозитории и присылает\n"
+    "краткие сводки по их обновлениям в этот чат.\n\n"
+    "Команды:\n"
+    "• /start, /menu — главное меню\n\n"
+    "Что делает каждая кнопка меню:\n"
+    "• ➕ Добавить репозиторий — запросит owner/repo или GitHub URL,\n"
+    "  затем предложит выбрать режим отслеживания.\n"
+    "• 📋 Мои подписки — список подписок чата с кнопкой удаления.\n"
+    "• 🔍 Проверить сейчас — поставит подписки в очередь на немедленный\n"
+    "  опрос. Уведомления придут после ближайшего цикла worker'a.\n"
+    "• ⚙️ Настройки — язык сводки (ru/en), стиль (Кратко/Подробно)\n"
+    "  и свободные «пожелания» к содержанию сводки.\n\n"
+    "Режимы:\n"
+    "• Releases — следим за GitHub Releases репозитория.\n"
+    "• File — следим за изменениями файла на default branch (по SHA).\n\n"
+    "По релизам сводка готовится через LLM на выбранном языке\n"
+    "и подсвечивает breaking changes и ключевые изменения."
+)
+
+
 @router.callback_query(F.data == "menu:help")
 async def help_message(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.message:
-        await callback.message.answer(
-            "GitNotifyBot будет отслеживать публичные GitHub-репозитории в режимах Releases и File."
-        )
+        await callback.message.answer(HELP_TEXT, reply_markup=main_menu_keyboard())
