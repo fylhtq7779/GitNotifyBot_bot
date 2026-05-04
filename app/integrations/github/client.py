@@ -45,6 +45,26 @@ class GitHubFileContents:
     download_url: str | None
 
 
+@dataclass(frozen=True)
+class GitHubCommitRef:
+    sha: str
+    message: str
+    author_name: str | None
+    author_date: str | None
+    html_url: str | None
+
+
+@dataclass(frozen=True)
+class GitHubCommitFilePatch:
+    commit_sha: str
+    file_path: str
+    status: str | None
+    additions: int | None
+    deletions: int | None
+    patch: str | None
+    html_url: str | None
+
+
 class GitHubClient:
     def __init__(self, token: str, *, timeout_seconds: float = 20) -> None:
         self._token = token
@@ -116,6 +136,122 @@ class GitHubClient:
             if isinstance(payload.get("download_url"), str)
             else None,
         )
+
+    async def list_commits_for_path(
+        self,
+        ref: GitHubRepositoryRef,
+        *,
+        path: str,
+        branch: str,
+        limit: int = 5,
+    ) -> list[GitHubCommitRef]:
+        normalized_path = path.strip("/")
+        encoded_path = urllib.parse.quote(normalized_path, safe="/")
+        encoded_branch = urllib.parse.quote(branch, safe="")
+        payload = await self._request_any(
+            "GET",
+            (
+                f"/repos/{ref.owner}/{ref.name}/commits"
+                f"?path={encoded_path}&sha={encoded_branch}&per_page={int(limit)}"
+            ),
+        )
+        if not isinstance(payload, list):
+            raise GitHubApiError("GitHub API returned an unexpected commits payload")
+        commits: list[GitHubCommitRef] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            sha = item.get("sha")
+            commit_block = item.get("commit") if isinstance(item.get("commit"), dict) else {}
+            author_block = (
+                commit_block.get("author") if isinstance(commit_block.get("author"), dict) else {}
+            )
+            if not isinstance(sha, str):
+                continue
+            commits.append(
+                GitHubCommitRef(
+                    sha=sha,
+                    message=str(commit_block.get("message") or ""),
+                    author_name=str(author_block.get("name"))
+                    if isinstance(author_block.get("name"), str)
+                    else None,
+                    author_date=str(author_block.get("date"))
+                    if isinstance(author_block.get("date"), str)
+                    else None,
+                    html_url=str(item["html_url"])
+                    if isinstance(item.get("html_url"), str)
+                    else None,
+                )
+            )
+        return commits
+
+    async def get_commit_file_patch(
+        self, ref: GitHubRepositoryRef, *, commit_sha: str, path: str
+    ) -> GitHubCommitFilePatch | None:
+        normalized_path = path.strip("/")
+        payload = await self._request_json(
+            "GET", f"/repos/{ref.owner}/{ref.name}/commits/{commit_sha}"
+        )
+        files = payload.get("files")
+        if not isinstance(files, list):
+            return None
+        for entry in files:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("filename") != normalized_path:
+                continue
+            additions = entry.get("additions")
+            deletions = entry.get("deletions")
+            return GitHubCommitFilePatch(
+                commit_sha=commit_sha,
+                file_path=normalized_path,
+                status=str(entry["status"])
+                if isinstance(entry.get("status"), str)
+                else None,
+                additions=int(additions) if isinstance(additions, int) else None,
+                deletions=int(deletions) if isinstance(deletions, int) else None,
+                patch=str(entry["patch"])
+                if isinstance(entry.get("patch"), str)
+                else None,
+                html_url=str(entry["blob_url"])
+                if isinstance(entry.get("blob_url"), str)
+                else None,
+            )
+        return None
+
+    async def fetch_file_text(
+        self, ref: GitHubRepositoryRef, *, path: str, branch: str
+    ) -> str | None:
+        normalized_path = path.strip("/")
+        if not normalized_path:
+            raise ValueError("File path must not be empty")
+        encoded_path = urllib.parse.quote(normalized_path, safe="/")
+        encoded_branch = urllib.parse.quote(branch, safe="")
+        headers = {
+            "Accept": "application/vnd.github.raw",
+            "Authorization": f"Bearer {self._token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "GitNotifyBot",
+        }
+        async with httpx.AsyncClient(
+            base_url=GITHUB_API_URL,
+            headers=headers,
+            timeout=self._timeout_seconds,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(
+                f"/repos/{ref.owner}/{ref.name}/contents/{encoded_path}?ref={encoded_branch}"
+            )
+        if response.status_code == 404:
+            raise GitHubNotFoundError("File not found")
+        if response.status_code >= 400:
+            raise GitHubApiError(
+                f"GitHub raw fetch failed with HTTP {response.status_code}"
+            )
+        try:
+            return response.text
+        except UnicodeDecodeError:
+            return None
 
     async def _request_json(self, method: str, path: str) -> dict[str, Any]:
         payload = await self._request_any(method, path)

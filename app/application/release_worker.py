@@ -692,8 +692,13 @@ def _release_payload(release: GitHubRelease) -> dict[str, Any]:
 def _fallback_notification_text(
     due: DueReleaseSubscription, release: GitHubRelease, release_url: str
 ) -> str:
-    label = release.tag_name or release.release_id or "release"
-    return f"New release for {due.full_name}: {label}\n{release_url}"
+    label = release.tag_name or release.release_id
+    label_part = f" — {label}" if label else ""
+    return (
+        f"✨ Обновился репозиторий {due.full_name}{label_part}\n\n"
+        f"Сводка временно недоступна, открой релиз по ссылке.\n\n"
+        f"🔗 {release_url}"
+    )
 
 
 def _format_summary_message(
@@ -702,18 +707,20 @@ def _format_summary_message(
     release_url: str,
     summary: ReleaseSummary,
 ) -> str:
-    label = release.tag_name or release.release_id or "release"
-    header = f"{due.full_name} · {label}"
-    lines: list[str] = [header]
+    label = release.tag_name or release.release_id
+    label_part = f" — {label}" if label else ""
+    lines: list[str] = [f"✨ Обновился репозиторий {due.full_name}{label_part}"]
     if summary.title and summary.title.strip():
+        lines.append("")
         lines.append(summary.title.strip())
     if summary.bullets:
         lines.append("")
-        lines.extend(f"• {item}" for item in summary.bullets if item.strip())
+        lines.append("Что нового:")
+        lines.extend(f"• {item.strip()}" for item in summary.bullets if item.strip())
     if summary.breaking_changes:
         lines.append("")
-        lines.append("Breaking changes:")
-        lines.extend(f"• {item}" for item in summary.breaking_changes if item.strip())
+        lines.append("⚠️ Что может сломаться:")
+        lines.extend(f"• {item.strip()}" for item in summary.breaking_changes if item.strip())
     lines.append("")
-    lines.append(release_url)
+    lines.append(f"🔗 {release_url}")
     return "\n".join(lines)

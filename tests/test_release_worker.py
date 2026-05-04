@@ -257,7 +257,8 @@ async def test_new_release_calls_summarizer_and_sends_rich_message() -> None:
 
     chat_id, message_text = telegram.messages[0]
     assert chat_id == 12345
-    assert "octo/repo · v1.1.0" in message_text
+    assert "Обновился репозиторий octo/repo" in message_text
+    assert "v1.1.0" in message_text
     assert "Release summary" in message_text
     assert "• bullet one" in message_text
     assert "https://github.com/octo/repo/releases/tag/v1.1.0" in message_text
@@ -295,9 +296,9 @@ async def test_summarizer_failure_falls_back_to_plain_message() -> None:
     assert store.summaries[0].error_message == "openai down"
 
     _, message_text = telegram.messages[0]
-    assert message_text == (
-        "New release for octo/repo: v1.1.0\nhttps://github.com/octo/repo/releases/tag/v1.1.0"
-    )
+    assert "Обновился репозиторий octo/repo" in message_text
+    assert "v1.1.0" in message_text
+    assert "https://github.com/octo/repo/releases/tag/v1.1.0" in message_text
     assert store.notifications[0][3] is None  # no llm_summary_id when fallback
     assert store.notifications[0][5] == "sent"
 

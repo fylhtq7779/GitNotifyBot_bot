@@ -24,6 +24,9 @@ env/
 # Local git worktrees
 .worktrees/
 
+# Local runtime artifacts (logs, pids)
+.runtime/
+
 # OS
 .DS_Store
 Thumbs.db

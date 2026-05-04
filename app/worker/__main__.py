@@ -16,6 +16,7 @@ from app.application.release_worker import (
 )
 from app.config import get_settings
 from app.integrations.github import GitHubClient
+from app.integrations.llm.file_summarizer import OpenAIFileSummarizer
 from app.integrations.llm.openai_client import OpenAILLMClient
 from app.integrations.llm.prompt_loader import load_prompt_template
 from app.integrations.llm.release_summarizer import OpenAIReleaseSummarizer
@@ -45,7 +46,14 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     telegram_client = TelegramNotificationClient(bot)
     prompt = load_prompt_template(PROMPT_PATH)
-    release_summarizer = OpenAIReleaseSummarizer(client=OpenAILLMClient(), prompt=prompt)
+    llm_client = OpenAILLMClient(
+        api_key=settings.openai_api_key,
+        timeout_seconds=settings.openai_timeout_seconds,
+    )
+    release_summarizer = OpenAIReleaseSummarizer(client=llm_client, prompt=prompt)
+    file_summarizer = OpenAIFileSummarizer(
+        client=llm_client, prompt=prompt, github_client=github_client
+    )
     logger.info("worker started")
     try:
         while True:
@@ -65,7 +73,7 @@ async def main() -> None:
                         store=SqlAlchemyFilePollingStore(session),
                         github_client=github_client,
                         telegram_client=telegram_client,
-                        summarizer=None,
+                        summarizer=file_summarizer,
                     )
             _log_file_result(file_result)
 

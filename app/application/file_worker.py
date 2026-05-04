@@ -622,10 +622,9 @@ def _fallback_text(
     due: DueFileSubscription, contents: GitHubFileContents, file_url: str
 ) -> str:
     return (
-        f"File update in {due.full_name}\n"
-        f"{due.file_path} on {due.branch}\n"
-        f"sha: {contents.sha[:7]}\n"
-        f"{file_url}"
+        f"✨ Обновился файл {due.file_path} в репозитории {due.full_name}\n\n"
+        f"Сводка временно недоступна, открой файл по ссылке.\n\n"
+        f"🔗 {file_url}"
     )
 
 
@@ -635,17 +634,20 @@ def _format_summary_message(
     file_url: str,
     summary: FileSummary,
 ) -> str:
-    header = f"{due.full_name} · {due.file_path}"
-    lines: list[str] = [header]
+    lines: list[str] = [
+        f"✨ Обновился файл {due.file_path} в репозитории {due.full_name}"
+    ]
     if summary.title and summary.title.strip():
+        lines.append("")
         lines.append(summary.title.strip())
     if summary.bullets:
         lines.append("")
-        lines.extend(f"• {item}" for item in summary.bullets if item.strip())
+        lines.append("Что изменилось:")
+        lines.extend(f"• {item.strip()}" for item in summary.bullets if item.strip())
     if summary.breaking_changes:
         lines.append("")
-        lines.append("Breaking changes:")
-        lines.extend(f"• {item}" for item in summary.breaking_changes if item.strip())
+        lines.append("⚠️ Что может сломаться:")
+        lines.extend(f"• {item.strip()}" for item in summary.breaking_changes if item.strip())
     lines.append("")
-    lines.append(file_url)
+    lines.append(f"🔗 {file_url}")
     return "\n".join(lines)

@@ -252,9 +252,8 @@ async def test_changed_file_sends_fallback_when_no_summarizer() -> None:
     assert result == FilePollingResult(processed=1, unchanged=0, notified=1, failed=0)
     chat_id, message = telegram.messages[0]
     assert chat_id == 42
-    assert "octo/repo" in message
-    assert "docs/index.md" in message
-    assert "main" in message
+    assert "Обновился файл docs/index.md в репозитории octo/repo" in message
+    assert "Ветка" not in message  # branch not exposed in user-facing text
     assert "https://github.com/octo/repo/blob/main/docs/index.md" in message
     assert store.notifications[0][3] is None
     assert store.notifications[0][5] == "sent"
@@ -290,7 +289,7 @@ async def test_changed_file_uses_summarizer_when_provided() -> None:
     assert store.summaries[0].status == "success"
     chat_id, message = telegram.messages[0]
     assert chat_id == 42
-    assert "octo/repo · docs/index.md" in message
+    assert "Обновился файл docs/index.md в репозитории octo/repo" in message
     assert "File update summary" in message
     assert store.notifications[0][3] == 9101
 
