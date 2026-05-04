@@ -25,7 +25,13 @@ from app.application.subscriptions import (
     reschedule_chat_subscriptions_now,
 )
 from app.bot.keyboards import (
+    REPLY_BTN_ADD,
+    REPLY_BTN_CHECK,
+    REPLY_BTN_HELP,
+    REPLY_BTN_LIST,
+    REPLY_BTN_SETTINGS,
     main_menu_keyboard,
+    main_reply_keyboard,
     settings_keyboard,
     settings_language_keyboard,
     settings_preferences_keyboard,
@@ -59,6 +65,7 @@ class SettingsFlow(StatesGroup):
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext) -> None:
     await state.clear()
+    await message.answer("Клавиатура меню всегда внизу.", reply_markup=main_reply_keyboard())
     await message.answer(MAIN_MENU_TEXT, reply_markup=main_menu_keyboard())
 
 
@@ -66,6 +73,83 @@ async def start(message: Message, state: FSMContext) -> None:
 async def menu(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer(MAIN_MENU_TEXT, reply_markup=main_menu_keyboard())
+
+
+@router.message(F.text == REPLY_BTN_ADD)
+async def reply_add(message: Message, state: FSMContext) -> None:
+    await state.set_state(AddRepositoryFlow.waiting_for_repository)
+    await message.answer(
+        "Отправь GitHub URL или owner/repo.\n\n"
+        "Например: https://github.com/owner/repo или owner/repo"
+    )
+
+
+@router.message(F.text == REPLY_BTN_LIST)
+async def reply_list(
+    message: Message,
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await state.clear()
+    chat_id = message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            items = await list_chat_subscriptions(
+                store=SqlAlchemySubscriptionStore(session),
+                telegram_chat_id=chat_id,
+            )
+    if not items:
+        await message.answer(
+            "У тебя пока нет подписок. Нажми «Добавить репозиторий».",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    keyboard = subscriptions_list_keyboard(
+        [(item.subscription_id, item.repository_full_name) for item in items]
+    )
+    await message.answer(_format_subscription_list(items), reply_markup=keyboard)
+
+
+@router.message(F.text == REPLY_BTN_CHECK)
+async def reply_check(
+    message: Message,
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await state.clear()
+    chat_id = message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            count = await reschedule_chat_subscriptions_now(
+                store=SqlAlchemySubscriptionStore(session),
+                telegram_chat_id=chat_id,
+            )
+    if count == 0:
+        await message.answer(
+            "Нечего проверять — у тебя нет активных подписок.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    await message.answer(
+        f"Поставил в очередь {count} подписок. "
+        "Уведомления придут после ближайшего цикла worker'а (до минуты)."
+    )
+
+
+@router.message(F.text == REPLY_BTN_SETTINGS)
+async def reply_settings(
+    message: Message,
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await state.clear()
+    await _show_settings_overview(message, session_factory)
+
+
+@router.message(F.text == REPLY_BTN_HELP)
+async def reply_help(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer(HELP_TEXT, reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(F.data == "menu:add")

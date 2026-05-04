@@ -1,4 +1,34 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
+
+REPLY_BTN_ADD = "➕ Добавить репозиторий"
+REPLY_BTN_LIST = "📋 Мои подписки"
+REPLY_BTN_CHECK = "🔍 Проверить сейчас"
+REPLY_BTN_SETTINGS = "⚙️ Настройки"
+REPLY_BTN_HELP = "❓ Помощь"
+
+
+def main_reply_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=REPLY_BTN_ADD)],
+            [
+                KeyboardButton(text=REPLY_BTN_LIST),
+                KeyboardButton(text=REPLY_BTN_CHECK),
+            ],
+            [
+                KeyboardButton(text=REPLY_BTN_SETTINGS),
+                KeyboardButton(text=REPLY_BTN_HELP),
+            ],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Выбери действие или используй кнопки ниже",
+    )
 
 
 def subscriptions_list_keyboard(
