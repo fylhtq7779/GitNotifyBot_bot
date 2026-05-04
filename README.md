@@ -1,4 +1,14 @@
-# GitNotifyBot
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/cover-dark.png">
+    <img src="assets/cover-light.png" alt="GitNotifyBot cover" width="640">
+  </picture>
+</p>
+
+<h1 align="center">
+  <img src="assets/logo-dark.svg" alt="" width="32" height="32" align="absmiddle">
+  GitNotifyBot
+</h1>
 
 Telegram-бот, который следит за публичными GitHub-репозиториями и
 присылает в чат короткие сводки по их обновлениям. Сводки готовит LLM
@@ -155,7 +165,10 @@ uv run ruff check .
 <details>
 <summary><b>English version</b></summary>
 
-# GitNotifyBot
+<h1>
+  <img src="assets/logo-dark.svg" alt="" width="32" height="32" align="absmiddle">
+  GitNotifyBot
+</h1>
 
 Telegram bot that watches public GitHub repositories and posts concise,
 LLM-generated change summaries the moment a release lands or a tracked

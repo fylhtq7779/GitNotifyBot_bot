@@ -27,6 +27,9 @@ env/
 # Local runtime artifacts (logs, pids)
 .runtime/
 
+# Brand source files (only assets/ goes to repo)
+exports/
+
 # OS
 .DS_Store
 Thumbs.db
