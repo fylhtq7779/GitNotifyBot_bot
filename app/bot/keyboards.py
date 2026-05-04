@@ -1,6 +1,22 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
+def subscriptions_list_keyboard(
+    items: list[tuple[int, str]],
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"❌ {full_name}",
+                callback_data=f"sub:del:{subscription_id}",
+            )
+        ]
+        for subscription_id, full_name in items
+    ]
+    rows.append([InlineKeyboardButton(text="⬅️ Меню", callback_data="menu:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

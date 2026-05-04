@@ -1,8 +1,15 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.application.subscriptions import AddReleaseSubscriptionResult, add_release_subscription
+from app.application.subscriptions import (
+    AddReleaseSubscriptionResult,
+    SubscriptionListItem,
+    add_release_subscription,
+    delete_chat_subscription,
+    list_chat_subscriptions,
+)
 from app.domain.github import GitHubRepositoryRef
 from app.storage.models import Chat, GitHubSource, Repository, Subscription, SubscriptionState, User
 
@@ -183,6 +190,63 @@ class FakeSubscriptionStore:
         self.states.append(state)
         return state
 
+    async def list_chat_subscriptions(
+        self, *, telegram_chat_id: int
+    ) -> list[SubscriptionListItem]:
+        chat = next(
+            (item for item in self.chats if item.telegram_chat_id == telegram_chat_id),
+            None,
+        )
+        if chat is None:
+            return []
+        result: list[SubscriptionListItem] = []
+        for sub in self.subscriptions:
+            if sub.chat_id != chat.id:
+                continue
+            repository = next(item for item in self.repositories if item.id == sub.repository_id)
+            state = next(
+                (item for item in self.states if item.subscription_id == sub.id),
+                None,
+            )
+            result.append(
+                SubscriptionListItem(
+                    subscription_id=sub.id,
+                    repository_full_name=repository.full_name,
+                    repository_html_url=repository.html_url,
+                    mode=sub.mode,
+                    last_seen_tag=state.last_seen_tag if state else None,
+                    last_seen_file_sha=getattr(state, "last_seen_file_sha", None),
+                    last_checked_at=None,
+                    next_check_at=getattr(sub, "next_check_at", datetime.now(UTC)),
+                    status=getattr(sub, "status", "active"),
+                )
+            )
+        return result
+
+    async def delete_chat_subscription(
+        self, *, telegram_chat_id: int, subscription_id: int
+    ) -> str | None:
+        chat = next(
+            (item for item in self.chats if item.telegram_chat_id == telegram_chat_id),
+            None,
+        )
+        if chat is None:
+            return None
+        sub = next(
+            (
+                item
+                for item in self.subscriptions
+                if item.id == subscription_id and item.chat_id == chat.id
+            ),
+            None,
+        )
+        if sub is None:
+            return None
+        repository = next(item for item in self.repositories if item.id == sub.repository_id)
+        self.subscriptions.remove(sub)
+        self.states = [item for item in self.states if item.subscription_id != sub.id]
+        return repository.full_name
+
     def _allocate_id(self) -> int:
         value = self._next_id
         self._next_id += 1
@@ -221,3 +285,70 @@ async def test_add_release_subscription_creates_records_with_latest_release_base
     assert len(store.subscriptions) == 1
     assert store.states[0].last_seen_release_id == "123456"
     assert store.states[0].last_seen_tag == "v1.2.3"
+
+
+@pytest.mark.asyncio
+async def test_list_chat_subscriptions_returns_items_for_chat() -> None:
+    store = FakeSubscriptionStore()
+    await add_release_subscription(
+        store=store,
+        github_client=FakeGitHubClient(),
+        repository_ref=GitHubRepositoryRef(owner="anthropics", name="claude-code"),
+        telegram_chat_id=42,
+        chat_type="private",
+        chat_title=None,
+        telegram_user_id=100,
+        username="octocat",
+        first_name="Octo",
+        last_name=None,
+        language_code="ru",
+    )
+    # Provide next_check_at on the in-memory subscription
+    store.subscriptions[0].next_check_at = datetime.now(UTC) + timedelta(minutes=30)
+
+    items = await list_chat_subscriptions(store=store, telegram_chat_id=42)
+
+    assert len(items) == 1
+    assert items[0].repository_full_name == "anthropics/claude-code"
+    assert items[0].mode == "releases"
+    assert items[0].last_seen_tag == "v1.2.3"
+
+
+@pytest.mark.asyncio
+async def test_list_chat_subscriptions_returns_empty_for_unknown_chat() -> None:
+    store = FakeSubscriptionStore()
+
+    items = await list_chat_subscriptions(store=store, telegram_chat_id=999)
+
+    assert items == []
+
+
+@pytest.mark.asyncio
+async def test_delete_chat_subscription_removes_only_matching_chat() -> None:
+    store = FakeSubscriptionStore()
+    await add_release_subscription(
+        store=store,
+        github_client=FakeGitHubClient(),
+        repository_ref=GitHubRepositoryRef(owner="anthropics", name="claude-code"),
+        telegram_chat_id=42,
+        chat_type="private",
+        chat_title=None,
+        telegram_user_id=100,
+        username="octocat",
+        first_name="Octo",
+        last_name=None,
+        language_code="ru",
+    )
+    subscription_id = store.subscriptions[0].id
+
+    rejected = await delete_chat_subscription(
+        store=store, telegram_chat_id=999, subscription_id=subscription_id
+    )
+    assert rejected is None
+    assert len(store.subscriptions) == 1
+
+    removed = await delete_chat_subscription(
+        store=store, telegram_chat_id=42, subscription_id=subscription_id
+    )
+    assert removed == "anthropics/claude-code"
+    assert store.subscriptions == []

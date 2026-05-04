@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import GitHubSourceType, SubscriptionStatus
@@ -32,6 +32,28 @@ class GitHubClient(Protocol):
 
     async def get_latest_release(self, ref: GitHubRepositoryRef) -> GitHubRelease | None:
         raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class AddReleaseSubscriptionResult:
+    repository_full_name: str
+    repository_html_url: str
+    default_branch: str
+    latest_release_tag: str | None
+    created: bool
+
+
+@dataclass(frozen=True)
+class SubscriptionListItem:
+    subscription_id: int
+    repository_full_name: str
+    repository_html_url: str
+    mode: str
+    last_seen_tag: str | None
+    last_seen_file_sha: str | None
+    last_checked_at: datetime | None
+    next_check_at: datetime
+    status: str
 
 
 class SubscriptionStore(Protocol):
@@ -82,14 +104,15 @@ class SubscriptionStore(Protocol):
     ) -> SubscriptionState:
         raise NotImplementedError
 
+    async def list_chat_subscriptions(
+        self, *, telegram_chat_id: int
+    ) -> list[SubscriptionListItem]:
+        raise NotImplementedError
 
-@dataclass(frozen=True)
-class AddReleaseSubscriptionResult:
-    repository_full_name: str
-    repository_html_url: str
-    default_branch: str
-    latest_release_tag: str | None
-    created: bool
+    async def delete_chat_subscription(
+        self, *, telegram_chat_id: int, subscription_id: int
+    ) -> str | None:
+        raise NotImplementedError
 
 
 class SqlAlchemySubscriptionStore:
@@ -231,6 +254,91 @@ class SqlAlchemySubscriptionStore:
         state.last_seen_tag = last_seen_tag
         await self._session.flush()
         return state
+
+    async def list_chat_subscriptions(
+        self, *, telegram_chat_id: int
+    ) -> list[SubscriptionListItem]:
+        rows = await self._session.execute(
+            select(
+                Subscription.id,
+                Repository.full_name,
+                Repository.html_url,
+                Subscription.mode,
+                Subscription.status,
+                Subscription.next_check_at,
+                SubscriptionState.last_seen_tag,
+                SubscriptionState.last_seen_file_sha,
+                GitHubSource.last_checked_at,
+            )
+            .join(Chat, Chat.id == Subscription.chat_id)
+            .join(Repository, Repository.id == Subscription.repository_id)
+            .join(GitHubSource, GitHubSource.id == Subscription.github_source_id)
+            .outerjoin(
+                SubscriptionState,
+                SubscriptionState.subscription_id == Subscription.id,
+            )
+            .where(Chat.telegram_chat_id == telegram_chat_id)
+            .order_by(Subscription.id)
+        )
+        return [
+            SubscriptionListItem(
+                subscription_id=subscription_id,
+                repository_full_name=full_name,
+                repository_html_url=html_url,
+                mode=mode,
+                last_seen_tag=last_seen_tag,
+                last_seen_file_sha=last_seen_file_sha,
+                last_checked_at=last_checked_at,
+                next_check_at=next_check_at,
+                status=status,
+            )
+            for (
+                subscription_id,
+                full_name,
+                html_url,
+                mode,
+                status,
+                next_check_at,
+                last_seen_tag,
+                last_seen_file_sha,
+                last_checked_at,
+            ) in rows.all()
+        ]
+
+    async def delete_chat_subscription(
+        self, *, telegram_chat_id: int, subscription_id: int
+    ) -> str | None:
+        row = await self._session.execute(
+            select(Subscription.id, Repository.full_name)
+            .join(Chat, Chat.id == Subscription.chat_id)
+            .join(Repository, Repository.id == Subscription.repository_id)
+            .where(
+                Subscription.id == subscription_id,
+                Chat.telegram_chat_id == telegram_chat_id,
+            )
+        )
+        match = row.first()
+        if match is None:
+            return None
+        await self._session.execute(
+            delete(Subscription).where(Subscription.id == subscription_id)
+        )
+        await self._session.flush()
+        return match[1]
+
+
+async def list_chat_subscriptions(
+    *, store: SubscriptionStore, telegram_chat_id: int
+) -> list[SubscriptionListItem]:
+    return await store.list_chat_subscriptions(telegram_chat_id=telegram_chat_id)
+
+
+async def delete_chat_subscription(
+    *, store: SubscriptionStore, telegram_chat_id: int, subscription_id: int
+) -> str | None:
+    return await store.delete_chat_subscription(
+        telegram_chat_id=telegram_chat_id, subscription_id=subscription_id
+    )
 
 
 async def add_release_subscription(

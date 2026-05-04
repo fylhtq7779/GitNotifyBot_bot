@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -5,8 +7,18 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.subscriptions import SqlAlchemySubscriptionStore, add_release_subscription
-from app.bot.keyboards import main_menu_keyboard, subscription_mode_keyboard
+from app.application.subscriptions import (
+    SqlAlchemySubscriptionStore,
+    SubscriptionListItem,
+    add_release_subscription,
+    delete_chat_subscription,
+    list_chat_subscriptions,
+)
+from app.bot.keyboards import (
+    main_menu_keyboard,
+    subscription_mode_keyboard,
+    subscriptions_list_keyboard,
+)
 from app.domain.github import GitHubRepositoryRef, parse_github_repository
 from app.integrations.github import GitHubApiError, GitHubClient, GitHubNotFoundError
 
@@ -170,12 +182,121 @@ async def cancel_add_repository(callback: CallbackQuery, state: FSMContext) -> N
 
 
 @router.callback_query(F.data == "menu:subscriptions")
-async def subscriptions(callback: CallbackQuery) -> None:
+async def subscriptions(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     await callback.answer()
-    if callback.message:
+    if callback.message is None:
+        return
+    chat_id = callback.message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            items = await list_chat_subscriptions(
+                store=SqlAlchemySubscriptionStore(session),
+                telegram_chat_id=chat_id,
+            )
+    if not items:
         await callback.message.answer(
-            "Список подписок появится после реализации subscription flow."
+            "У тебя пока нет подписок. Нажми “Добавить репозиторий” в главном меню.",
+            reply_markup=main_menu_keyboard(),
         )
+        return
+    text = _format_subscription_list(items)
+    keyboard = subscriptions_list_keyboard(
+        [(item.subscription_id, item.repository_full_name) for item in items]
+    )
+    await callback.message.answer(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("sub:del:"))
+async def delete_subscription(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await callback.answer()
+    if callback.message is None or callback.data is None:
+        return
+    try:
+        subscription_id = int(callback.data.removeprefix("sub:del:"))
+    except ValueError:
+        await callback.message.answer("Не получилось разобрать команду удаления.")
+        return
+
+    chat_id = callback.message.chat.id
+    async with session_factory() as session:
+        async with session.begin():
+            store = SqlAlchemySubscriptionStore(session)
+            removed_full_name = await delete_chat_subscription(
+                store=store,
+                telegram_chat_id=chat_id,
+                subscription_id=subscription_id,
+            )
+            if removed_full_name is None:
+                await callback.message.answer(
+                    "Подписка уже удалена или не принадлежит этому чату."
+                )
+                return
+            items = await list_chat_subscriptions(
+                store=store,
+                telegram_chat_id=chat_id,
+            )
+    if not items:
+        await callback.message.answer(
+            f"Подписка на {removed_full_name} удалена. Подписок больше нет.",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    keyboard = subscriptions_list_keyboard(
+        [(item.subscription_id, item.repository_full_name) for item in items]
+    )
+    await callback.message.answer(
+        f"Подписка на {removed_full_name} удалена.\n\n"
+        + _format_subscription_list(items),
+        reply_markup=keyboard,
+    )
+
+
+@router.callback_query(F.data == "menu:back")
+async def menu_back(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await state.clear()
+    if callback.message:
+        await callback.message.answer(MAIN_MENU_TEXT, reply_markup=main_menu_keyboard())
+
+
+def _format_subscription_list(items: list[SubscriptionListItem]) -> str:
+    lines = [f"📋 Мои подписки ({len(items)})", ""]
+    for index, item in enumerate(items, start=1):
+        last_seen = item.last_seen_tag or item.last_seen_file_sha
+        last_seen_label = last_seen if last_seen else "—"
+        last_checked = (
+            _humanize_age(item.last_checked_at)
+            if item.last_checked_at is not None
+            else "ещё не проверяли"
+        )
+        lines.append(
+            f"{index}. {item.repository_full_name} · {item.mode} · "
+            f"{last_seen_label} · {last_checked}"
+        )
+    return "\n".join(lines)
+
+
+def _humanize_age(moment: datetime) -> str:
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    delta = datetime.now(UTC) - moment
+    seconds = max(int(delta.total_seconds()), 0)
+    if seconds < 60:
+        return "только что"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} мин назад"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} ч назад"
+    days = hours // 24
+    return f"{days} д назад"
 
 
 @router.callback_query(F.data == "menu:check")
