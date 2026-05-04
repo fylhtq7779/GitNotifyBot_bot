@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from aiogram import Bot
 
@@ -10,10 +11,15 @@ from app.application.release_worker import (
 )
 from app.config import get_settings
 from app.integrations.github import GitHubClient
+from app.integrations.llm.openai_client import OpenAILLMClient
+from app.integrations.llm.prompt_loader import load_prompt_template
+from app.integrations.llm.release_summarizer import OpenAIReleaseSummarizer
 from app.logging import configure_logging
 from app.storage.session import create_session_factory
 
 logger = logging.getLogger(__name__)
+
+PROMPT_PATH = Path("app/prompts/github_update_summary.v1.yaml")
 
 
 class TelegramNotificationClient:
@@ -32,6 +38,8 @@ async def main() -> None:
     github_client = GitHubClient(settings.github_token)
     bot = Bot(token=settings.telegram_bot_token)
     telegram_client = TelegramNotificationClient(bot)
+    prompt = load_prompt_template(PROMPT_PATH)
+    summarizer = OpenAIReleaseSummarizer(client=OpenAILLMClient(), prompt=prompt)
     logger.info("worker started")
     try:
         while True:
@@ -41,6 +49,7 @@ async def main() -> None:
                         store=SqlAlchemyReleasePollingStore(session),
                         github_client=github_client,
                         telegram_client=telegram_client,
+                        summarizer=summarizer,
                     )
             _log_result(result)
             await asyncio.sleep(60)
