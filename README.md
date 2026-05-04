@@ -70,3 +70,33 @@ uv run python -m app.worker
 End-to-end MVP complete: Telegram add/list/delete subscription flows,
 manual "check now", per-chat language/style/preferences, Releases and
 File modes with LLM-generated Russian/English summaries.
+
+## How it works
+
+For Releases mode the worker calls `GET /releases/latest` once per
+poll interval, compares the release id with the saved baseline, and
+only summarizes the body when the id changes. Summaries are cached in
+the `llm_summaries` table by (update_id, language, style,
+preferences_hash, prompt_version), so two chats with the same
+preferences share one OpenAI call.
+
+For File mode the worker calls `GET /contents/<path>?ref=<branch>` and
+compares blob sha with the baseline. When sha changes, it fetches the
+last 3 commits affecting the path and asks the LLM to summarize only
+the most recent commit's patch — this keeps notifications focused on
+the actual change for append-only files like CHANGELOG.md.
+
+Notifications fall back to a plain link when the LLM is unavailable
+or returns an error; the failed summary is persisted as `status=failed`
+in `llm_summaries` so retries are observable.
+
+## Configuration
+
+Required environment variables (see `.env.example`):
+
+- `TELEGRAM_BOT_TOKEN` — token for the Telegram bot
+- `DATABASE_URL` — PostgreSQL DSN
+- `GITHUB_TOKEN` — GitHub PAT for higher API rate limit
+- `OPENAI_API_KEY` — key with access to the configured model
+- `OPENAI_MODEL` — default `gpt-5.4-mini`
+- `OPENAI_PROMPT_VERSION` — prompt template version, default `v1`
