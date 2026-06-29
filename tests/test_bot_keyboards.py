@@ -1,4 +1,16 @@
-from app.bot.keyboards import main_menu_keyboard, subscription_mode_keyboard
+from app.bot.keyboards import (
+    main_menu_keyboard,
+    main_reply_keyboard,
+    subscription_mode_keyboard,
+)
+
+
+def test_main_reply_keyboard_is_not_persistent() -> None:
+    # persistent reply-клавиатуру нельзя свернуть, из-за чего на телефоне залипает
+    # системный свайп/кнопка «назад». Держим её сворачиваемой.
+    keyboard = main_reply_keyboard()
+
+    assert not keyboard.is_persistent
 
 
 def test_main_menu_keyboard_contains_expected_actions() -> None:

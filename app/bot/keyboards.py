@@ -26,7 +26,9 @@ def main_reply_keyboard() -> ReplyKeyboardMarkup:
             ],
         ],
         resize_keyboard=True,
-        is_persistent=True,
+        # is_persistent НЕ ставим: persistent-клавиатуру нельзя свернуть, и на Android
+        # системный свайп/кнопка «назад» залипает на ней - из чата не выйти. Свернуть
+        # клавиатуру пользователь должен иметь возможность, иначе ломается навигация.
         input_field_placeholder="Выбери действие или используй кнопки ниже",
     )
 
