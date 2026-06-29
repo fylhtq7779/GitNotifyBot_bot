@@ -728,3 +728,18 @@ async def help_message(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.message:
         await callback.message.answer(HELP_TEXT, reply_markup=main_menu_keyboard())
+
+
+@router.callback_query()
+async def stale_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    # Перехват для всех нажатий, которые не поймал ни один хендлер выше.
+    # Бот хранит FSM-состояние в памяти (MemoryStorage) и теряет его при каждом
+    # рестарте/переподключении. После этого кнопки, привязанные к состоянию
+    # (например выбор режима add:mode:*), и любые кнопки из старых сообщений
+    # перестают матчиться: без ответа на callback кнопка бесконечно крутит
+    # спиннер и выглядит как «не работает». Здесь гасим спиннер и возвращаем
+    # пользователя в актуальное меню.
+    await state.clear()
+    await callback.answer("Кнопка устарела, открыл актуальное меню.")
+    if callback.message:
+        await callback.message.answer(MAIN_MENU_TEXT, reply_markup=main_menu_keyboard())
